@@ -2,98 +2,123 @@
 
 ## Purpose
 
-Let the user jump the cursor to the nearest info-level comment tag (TODO, NOTE, INFO) in the current buffer, in both forward and backward directions, mirroring the behavior of Helix's built-in `goto_next_comment` / `goto_prev_comment` motions but scoped to info-level tags.
+Let the user jump to the nearest info-level comment tag in the current buffer, in both forward and backward directions, mirroring the behavior of Helix's built-in `goto_next_comment` / `goto_prev_comment` motions but scoped to info-level tags.
 
 ## Requirements
 
 ### Requirement: Forward navigation to next info-level tag
 
-The plugin SHALL provide a command `todo-next` that moves the cursor to the nearest info-level comment tag whose line is strictly after the cursor's current line. "Info-level comment tag" means any comment containing the word `TODO`, `NOTE`, or `INFO` matched with word boundaries (via `\b(TODO|NOTE|INFO)\b` regex against the comment node's text).
+The plugin SHALL provide a command `todo-next` that selects the nearest info-level tag strictly after the cursor's current byte position. An info-level tag SHALL be recognized from Helix's structured comment syntax and SHALL include the configured info vocabulary used by the plugin, initially `INFO`, `NOTE`, `TODO`, `TO-DO`, `PERF`, `OPTIMIZE`, `PERFORMANCE`, `QUESTION`, `ASK`, `REVIEW`, `PR`, and `CR`.
 
-#### Scenario: Jump to next TODO comment
+#### Scenario: Select the next TODO tag
 
-- **WHEN** the cursor is on a line before a comment containing the word `TODO` and the user invokes `todo-next`
-- **THEN** the cursor moves to the first non-whitespace character of the line containing that `TODO` comment
+- **WHEN** the cursor is before a comment containing `TODO` and the user invokes `todo-next`
+- **THEN** the plugin selects the exact Tree-sitter range of the matching tag and places the selection head at its end
 
-#### Scenario: Jump over non-info comments
+#### Scenario: Skip comments without info tags
 
-- **WHEN** the buffer contains comments that do not contain an `@info`-level tag (e.g. a plain `// hello` comment) and a later comment contains `TODO`, and the user invokes `todo-next`
-- **THEN** the cursor skips the plain comment and lands on the line of the comment containing `TODO`
+- **WHEN** the buffer contains a plain comment followed by a comment containing `TODO` and the user invokes `todo-next`
+- **THEN** the plugin skips the plain comment and selects the later info tag
 
-#### Scenario: Cursor lands on first non-whitespace character
+#### Scenario: Multiple tags on one line
 
-- **WHEN** `todo-next` targets an indented comment line (e.g. a `TODO` inside a block whose leading whitespace is non-zero)
-- **THEN** the cursor lands on the first non-whitespace character of the target line, not at column 0
+- **WHEN** multiple info tags occur after the cursor on the same line
+- **THEN** the plugin chooses the nearest tag by byte position using deterministic Helix-compatible ordering
 
-#### Scenario: Tie-break by wider span
+#### Scenario: Counted forward navigation
 
-- **WHEN** two `@info` captures start on the same line and no earlier line holds an `@info` capture, and the user invokes `todo-next`
-- **THEN** the cursor lands on that line (the tie-break between captures on the same line is deferred to v2; the cursor SHALL land on the line, not fail)
+- **WHEN** the user invokes `todo-next` with a count greater than one
+- **THEN** the plugin advances through that many successive info-tag targets without wrapping
 
 #### Scenario: No match forward
 
-- **WHEN** the cursor is on or after the last line holding an `@info` capture and the user invokes `todo-next`
-- **THEN** the cursor does not move and no status message is displayed
-
-#### Scenario: Buffer with no tree-sitter parser
-
-- **WHEN** the current buffer has no tree-sitter syntax tree available (e.g. a plain-text file with no language configured) and the user invokes `todo-next`
-- **THEN** the cursor does not move and no status message is displayed
+- **WHEN** there is no info tag with a start byte strictly greater than the cursor position
+- **THEN** the selection remains unchanged and no status message is displayed
 
 ### Requirement: Backward navigation to previous info-level tag
 
-The plugin SHALL provide a command `todo-prev` that moves the cursor to the nearest info-level comment tag whose line is strictly before the cursor's current line, symmetrical to `todo-next`.
+The plugin SHALL provide a command `todo-prev` that selects the nearest info-level tag strictly before the cursor's current byte position. The selected range SHALL have its head at the beginning of the tag, matching the direction of Helix's previous-object motions.
 
-#### Scenario: Jump to previous TODO comment
+#### Scenario: Select the previous TODO tag
 
-- **WHEN** the cursor is on a line after a comment containing `TODO` and the user invokes `todo-prev`
-- **THEN** the cursor moves to the first non-whitespace character of the line containing that `TODO` comment
+- **WHEN** the cursor is after a comment containing `TODO` and the user invokes `todo-prev`
+- **THEN** the plugin selects the exact Tree-sitter range of the matching tag and places the selection head at its beginning
+
+#### Scenario: Counted backward navigation
+
+- **WHEN** the user invokes `todo-prev` with a count greater than one
+- **THEN** the plugin moves through that many successive preceding info-tag targets without wrapping
 
 #### Scenario: No match backward
 
-- **WHEN** the cursor is on or before the first line holding an `@info` capture and the user invokes `todo-prev`
-- **THEN** the cursor does not move and no status message is displayed
+- **WHEN** there is no info tag with an end byte strictly less than the cursor position
+- **THEN** the selection remains unchanged and no status message is displayed
 
 ### Requirement: No wrap-around at buffer boundary
 
-The plugin SHALL NOT wrap the cursor to the opposite end of the buffer when no further matches exist in the requested direction. This matches the behavior of Helix's `goto_next_comment` / `goto_prev_comment` and differs from `search`/`search_next` which wrap by default.
+The plugin SHALL NOT wrap the selection to the opposite end of the buffer when no further info-tag target exists in the requested direction. This SHALL match Helix's native tree-sitter object motions.
 
 #### Scenario: At last tag, no wrap forward
 
-- **WHEN** the cursor is on the line of the last `@info` capture in the buffer and the user invokes `todo-next`
-- **THEN** the cursor does not move and no "Wrapped around" message is displayed
+- **WHEN** the cursor is at or after the last info tag and the user invokes `todo-next`
+- **THEN** the selection does not move and no wrapped-around message is displayed
 
 #### Scenario: At first tag, no wrap backward
 
-- **WHEN** the cursor is on the line of the first `@info` capture in the buffer and the user invokes `todo-prev`
-- **THEN** the cursor does not move and no "Wrapped around" message is displayed
+- **WHEN** the cursor is at or before the first info tag and the user invokes `todo-prev`
+- **THEN** the selection does not move and no wrapped-around message is displayed
 
 ### Requirement: Strict direction comparison
 
-The line selection for `todo-next` SHALL consider only target lines strictly greater than the cursor's current line; `todo-prev` SHALL consider only target lines strictly less than the cursor's current line. A cursor already on a tag's line SHALL NOT result in staying on that line when invoking `todo-next` or `todo-prev`.
+Forward navigation SHALL consider only targets whose start byte is strictly greater than the current cursor byte. Backward navigation SHALL consider only targets whose end byte is strictly less than the current cursor byte. A target containing or beginning at the current cursor position SHALL not be selected by the corresponding motion.
 
-#### Scenario: Cursor on a tag line, invoking next
+#### Scenario: Cursor on a tag, invoking next
 
-- **WHEN** the cursor is on the line of an `@info` capture, there is a later `@info` capture on a different line, and the user invokes `todo-next`
-- **THEN** the cursor moves to the later capture's line, not staying on the current line
+- **WHEN** the cursor is on an info tag and a later info tag exists
+- **THEN** `todo-next` selects the later tag rather than staying on the current tag
 
-### Requirement: No side effects on editor state
+#### Scenario: Cursor on a tag, invoking previous
 
-Invoking `todo-next` or `todo-prev` SHALL NOT modify any editor register, search state, selection state, or document content. The only observable mutation SHALL be the cursor position change performed by the underlying `goto-line` / `goto-first-nonwhitespace` calls.
+- **WHEN** the cursor is on an info tag and an earlier info tag exists
+- **THEN** `todo-prev` selects the earlier tag rather than staying on the current tag
+
+### Requirement: Preserve editor state except for navigation
+
+Invoking `todo-next` or `todo-prev` SHALL not modify registers, search state, or document content. It SHALL update the current selection to the target range and SHALL add the pre-motion selection to the jumplist so the native jump-back behavior remains available.
 
 #### Scenario: Registers and search state preserved
 
-- **WHEN** the user has an active search register content (e.g. `/` register holding a previous search pattern) and invokes `todo-next`
-- **THEN** the `/` register content, `last_search_register`, and the user's current selection state remain unchanged after the jump
+- **WHEN** the user has an active search register and invokes an info navigation command
+- **THEN** the search register and last-search state remain unchanged
 
-### Requirement: Tag identification via tree walk and rope-regex
+#### Scenario: Selection follows the target
 
-The plugin SHALL identify info-level tags by walking the document's root tree-sitter tree to find comment nodes (`line_comment`, `block_comment`, `comment`, `doc_comment`) and matching their rope text against a word-boundary regex `\b(TODO|NOTE|INFO)\b`. The plugin SHALL NOT use `query-document` or `tsmatch-capture` — the Steel boxed-callback FFI cannot reliably return a pre-compiled `TSQuery` to Rust's query pipeline (verified during implementation).
+- **WHEN** a matching info tag is found
+- **THEN** the current selection is replaced by the exact target range without changing document content
 
-#### Scenario: New tag added to plugin regex
+#### Scenario: Jump-back remains available
 
-- **WHEN** a future plugin release adds a new tag (e.g. `PERF`) to the regex and the user invokes `todo-next` against a buffer containing that new tag
-- **THEN** the plugin recognizes the new tag after the plugin update
+- **WHEN** the user invokes an info navigation command and then invokes Helix's jump-back command
+- **THEN** Helix returns to the selection that existed before the info navigation
+
+### Requirement: Tag identification via Helix comment syntax
+
+The plugin SHALL identify info tags using Helix's injected `comment` Tree-sitter grammar and the same tag vocabulary as Helix's info highlighting. The preferred path SHALL query injected comment layers through the Steel Tree-sitter API. If that query path is unavailable at runtime, the plugin SHALL use a structured traversal of the injected `comment` tree rather than matching arbitrary host-comment text with a regex.
+
+#### Scenario: Structured tag recognition
+
+- **WHEN** a supported language injects the `comment` grammar for a comment containing `TODO(user)`
+- **THEN** the plugin recognizes the `TODO` tag and its exact byte range
+
+#### Scenario: Text that is not a tag
+
+- **WHEN** a comment contains `AUTODOC` or another word that merely includes an info word as a substring
+- **THEN** the plugin does not report it as an info tag
+
+#### Scenario: Unsupported parser or injection
+
+- **WHEN** the current buffer has no usable syntax tree or no usable comment injection
+- **THEN** the command remains a silent no-op and does not alter the selection
 
 ### Requirement: Dual invocation as typed command and static keybinding
 
@@ -111,14 +136,14 @@ The plugin SHALL expose `todo-next` and `todo-prev` such that both are invokable
 
 ### Requirement: Silent no-match behavior
 
-When no match is found in the requested direction, neither `todo-next` nor `todo-prev` SHALL emit a status message, error, or warning. The cursor SHALL remain at its current position silently. This matches the silence of `goto_next_comment` and differs from `search`, which emits "No more matches".
+When no match is found in the requested direction, neither `todo-next` nor `todo-prev` SHALL emit a status message, error, or warning. The cursor and selection SHALL remain unchanged silently.
 
 #### Scenario: No match in empty buffer
 
 - **WHEN** the current buffer is empty and the user invokes `todo-next`
-- **THEN** the cursor does not move and the status line shows no new message from the plugin
+- **THEN** the selection does not move and no new status message is displayed
 
-#### Scenario: No match in buffer with comments but no info tags
+#### Scenario: No match in buffer with no info tags
 
-- **WHEN** the current buffer contains comments but none contain an `@info`-level tag and the user invokes `todo-next`
-- **THEN** the cursor does not move and the status line shows no new message from the plugin
+- **WHEN** the current buffer contains comments but no recognized info tags
+- **THEN** the selection does not move and no status message is displayed
