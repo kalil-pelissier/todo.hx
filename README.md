@@ -4,34 +4,40 @@ A plugin for [Helix](https://helix-editor.com/) that adds navigation commands to
 
 ## Features
 
-- **`:todo-next`** — jump to the next info-level comment tag in the current buffer
-- **`:todo-prev`** — jump to the previous info-level comment tag in the current buffer
+- **`:todo-next`** — select the next info-level comment tag in the current buffer
+- **`:todo-prev`** — select the previous info-level comment tag in the current buffer
 
-The plugin reuses Helix's own `comment/highlights.scm` tree-sitter query (the `@info` capture) to identify TODO-class markers. This means it shares a single source of truth with Helix's highlighter — if Helix updates the list of recognized tags, navigation follows automatically.
+The plugin detects tags through the Tree-sitter `comment` grammar that Helix injects into your language's comments (the same grammar that powers Helix's `@info` tag highlighting), via the Steel `query-document` pipeline.
 
 ### Recognized tags
 
-All tags captured by `@info` in Helix's `comment/highlights.scm`:
+The info vocabulary from Helix's `comment/highlights.scm` `@info` capture, mirrored in the plugin's query:
 
 ```
 INFO  NOTE  TODO  TO-DO  PERF  OPTIMIZE  PERFORMANCE  QUESTION  ASK  REVIEW  PR  CR
 ```
 
+Tags are matched structurally on the comment grammar's `tag`/`name` nodes — `AUTODOC` or other words merely containing a tag name are not matches.
+
 ### Behavior
 
-Mirrors Helix's built-in `goto_next_comment` / `goto_prev_comment` (`]c` / `[c`):
+Mirrors Helix's built-in `goto_next_comment` / `goto_prev_comment` (`]c` / `[c`) motions, applied to info tags:
 
-- Strict comparison: the cursor jumps to a tag on a *different* line, never staying on the current line
-- No wrap-around: at the last/first tag, the cursor stays put silently
-- No status message on no-match (silent no-op)
-- Cursor lands on the first non-whitespace character of the target line
-- No side effects on editor registers, search state, or selections — the only change is the cursor position
+- The exact tag range is **selected** (like `]c` selects the whole comment): forward places the cursor at the tag's end, backward at its start
+- Strict byte-position comparison: a cursor on a tag never stays on that tag
+- No wrap-around: at the last/first tag, the selection stays put silently
+- Silent no-op when no match, no parser, or no comment injection
+- Count support with a keybinding prefix (`3]i` jumps three tags)
+- Multi-cursor: every selection transforms independently; cursors without a target stay put
+- The pre-motion selection is pushed to the jumplist — `<C-o>` jumps back
+- No side effects on registers, search state, or document content
 
 ### Limitations
 
-- Requires a tree-sitter parser for the current buffer AND the "comment" language injection to be configured (Helix does this by default for most languages — Rust, Python, JavaScript, CSS, and many others via their `injections.scm` files)
-- Buffers without a parser silently no-op (no error, no message)
-- Only the current buffer is navigated (no cross-buffer/project-wide navigation in v1)
+- Requires a Tree-sitter parser for the buffer **and** a `comment` language injection (most languages configure this via their `injections.scm`; buffers without it silently no-op)
+- Tags in doc comments (`/// TODO` in Rust) are not detected: doc comments inject `markdown-rustdoc`, not the `comment` grammar — consistent with Helix's own tag highlighting. Tags inside code blocks within doc comments are still found
+- The query mirrors Helix's current tag list; it is a copy, not loaded from Helix's runtime at edit time
+- Only the current buffer is navigated (no cross-buffer/project-wide navigation)
 
 ## Installation
 
@@ -44,8 +50,8 @@ forge install todo.hx
 Then add to your `~/.config/helix/helix.scm`:
 
 ```scheme
-(require "todo.hx")
-(provide (all-from-out "todo.hx"))
+(require "todo.hx/navigation.scm")
+(provide todo-next todo-prev)
 ```
 
 This makes `todo-next` and `todo-prev` available as typed commands (`:todo-next`, `:todo-prev`) and as static-bindable symbols.
@@ -73,4 +79,4 @@ The `]X` motion namespace is reserved for future expansion:
 - `]E` / `[E` — `@error` tags (BUG, FIXME, ISSUE, XXX, FIX, SAFETY, ...)
 - `]h` / `[h` — `@hint` tags (HINT, MARK, PASSED, STUB, MOCK, TIP)
 
-Other planned features: multi-buffer/project-wide navigation, picker UI, count argument support (`3]i` to jump three tags), configurable tag set.
+Other planned features: multi-buffer/project-wide navigation, picker UI, configurable tag set.
