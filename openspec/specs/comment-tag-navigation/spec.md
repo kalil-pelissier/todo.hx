@@ -1,4 +1,4 @@
-# info-comment-navigation Specification
+# comment-tag-navigation Specification
 
 ## Purpose
 
